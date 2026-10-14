@@ -9,6 +9,7 @@ const maximumAgeMs = Number.parseInt(
   process.env.MONITOR_HEALTH_MAX_AGE_MS ?? "90000",
   10,
 );
+const workerId = process.env.MONITOR_WORKER_ID;
 
 if (!supabaseUrl || !secretKey) {
   console.error("Worker healthcheck is missing Supabase configuration.");
@@ -23,12 +24,16 @@ if (!Number.isInteger(maximumAgeMs) || maximumAgeMs < 10_000) {
 const supabase = createClient(supabaseUrl, secretKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const { data, error } = await supabase
+let heartbeatQuery = supabase
   .from("worker_heartbeats")
   .select("worker_id, heartbeat_at")
-  .order("heartbeat_at", { ascending: false })
-  .limit(1)
-  .maybeSingle();
+  .order("heartbeat_at", { ascending: false });
+
+if (workerId) {
+  heartbeatQuery = heartbeatQuery.eq("worker_id", workerId);
+}
+
+const { data, error } = await heartbeatQuery.limit(1).maybeSingle();
 
 if (error) {
   console.error(`Worker heartbeat query failed: ${error.message}`);
@@ -36,7 +41,11 @@ if (error) {
 }
 
 if (!data) {
-  console.error("No worker heartbeat has been recorded.");
+  console.error(
+    workerId
+      ? `No heartbeat has been recorded for ${workerId}.`
+      : "No worker heartbeat has been recorded.",
+  );
   process.exit(1);
 }
 

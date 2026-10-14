@@ -1,7 +1,12 @@
 import { Suspense, type ReactNode } from "react";
 import { connection } from "next/server";
 import { BrandMark } from "@/components/brand-mark";
-import { getPublicSites, type PublicSite } from "@/lib/monitoring/public-sites";
+import { StatusRefresh } from "@/components/status-refresh";
+import {
+  getPublicSites,
+  type PublicFailureCategory,
+  type PublicSite,
+} from "@/lib/monitoring/public-sites";
 
 const dateFormatter = new Intl.DateTimeFormat("en-KE", {
   day: "numeric",
@@ -35,6 +40,31 @@ function formatLastChecked(value: string | null) {
   if (Number.isNaN(date.getTime())) return "Check time unavailable";
 
   return dateFormatter.format(date);
+}
+
+function getFailureDescription(
+  failureCategory: PublicFailureCategory | null,
+  httpStatusCode: number | null,
+) {
+  if (failureCategory === "http") {
+    return httpStatusCode
+      ? `The site returned HTTP ${httpStatusCode}.`
+      : "The site returned an unexpected response.";
+  }
+
+  if (failureCategory === "timeout") return "The request timed out.";
+  if (failureCategory === "dns") return "The domain could not be resolved.";
+  if (failureCategory === "tls") {
+    return "A secure connection could not be established.";
+  }
+  if (failureCategory === "slow") {
+    return "The site responded more slowly than expected.";
+  }
+  if (failureCategory === "connection") {
+    return "The monitor could not connect to the site.";
+  }
+
+  return "The latest availability checks did not succeed.";
 }
 
 function ArrowUpRightIcon() {
@@ -97,19 +127,39 @@ function AlertIcon() {
 function SiteRow({ site }: { site: PublicSite }) {
   const statusLabel = site.isStale
     ? "Delayed"
-    : site.isActive
+    : site.status === "operational"
       ? "Operational"
-      : "Unavailable";
+      : site.status === "down"
+        ? "Unavailable"
+        : site.status === "recovering"
+          ? "Recovering"
+          : site.status === "degraded"
+            ? "Investigating"
+            : "Pending";
   const statusClasses = site.isStale
     ? "border-amber-200 bg-amber-50 text-amber-800"
-    : site.isActive
+    : site.status === "operational"
       ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-      : "border-rose-200 bg-rose-50 text-rose-800";
+      : site.status === "down"
+        ? "border-rose-200 bg-rose-50 text-rose-800"
+        : site.status === "recovering"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : "border-blue-200 bg-blue-50 text-blue-800";
   const indicatorClasses = site.isStale
     ? "bg-amber-500"
-    : site.isActive
+    : site.status === "operational"
       ? "status-pulse bg-emerald-500"
-      : "bg-rose-500";
+      : site.status === "down"
+        ? "bg-rose-500"
+        : site.status === "recovering"
+          ? "bg-amber-500"
+          : "bg-blue-500";
+  const incidentDetail =
+    !site.isStale && site.status === "recovering"
+      ? "The site responded successfully; recovery is being confirmed."
+      : !site.isStale && (site.status === "down" || site.status === "degraded")
+        ? getFailureDescription(site.failureCategory, site.httpStatusCode)
+        : null;
 
   return (
     <li className="site-row group grid gap-5 px-5 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6 lg:px-7">
@@ -135,6 +185,23 @@ function SiteRow({ site }: { site: PublicSite }) {
           <p className="mt-1 truncate text-sm text-[var(--muted)]">
             {getHostname(site.url)}
           </p>
+          {incidentDetail ? (
+            <p
+              className={`mt-2 text-xs font-medium ${site.status === "down" ? "text-rose-700" : site.status === "recovering" ? "text-amber-700" : "text-blue-700"}`}
+            >
+              {incidentDetail}
+              {site.incidentStartedAt ? (
+                <>
+                  {" "}
+                  Since{" "}
+                  <time dateTime={site.incidentStartedAt}>
+                    {formatLastChecked(site.incidentStartedAt)}
+                  </time>
+                  .
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -201,39 +268,51 @@ function Metric({
 
 function OverallStatus({
   activeCount,
-  inactiveCount,
+  downCount,
+  investigatingCount,
+  recoveringCount,
   staleCount,
   totalCount,
 }: {
   activeCount: number;
-  inactiveCount: number;
+  downCount: number;
+  investigatingCount: number;
+  recoveringCount: number;
   staleCount: number;
   totalCount: number;
 }) {
   const allOperational = totalCount > 0 && activeCount === totalCount;
-  const hasOutage = inactiveCount > 0;
+  const hasOutage = downCount > 0;
   const title = hasOutage
-    ? `${inactiveCount} ${inactiveCount === 1 ? "site needs" : "sites need"} attention`
-    : staleCount > 0
-      ? "Monitoring updates are delayed"
-      : allOperational
-        ? "All systems operational"
-        : "Monitoring is getting started";
+    ? `${downCount} ${downCount === 1 ? "site is" : "sites are"} unavailable`
+    : recoveringCount > 0
+      ? "Recovery is being confirmed"
+      : investigatingCount > 0
+        ? "A possible issue is being verified"
+        : staleCount > 0
+          ? "Monitoring updates are delayed"
+          : allOperational
+            ? "All systems operational"
+            : "Monitoring is getting started";
   const description = hasOutage
-    ? "One or more endpoints did not pass their latest availability check."
-    : staleCount > 0
-      ? "The latest worker heartbeat is late. Site availability may be out of date."
-      : allOperational
-        ? "Every monitored website passed its latest HTTP availability check."
-        : "Sites will appear here as soon as the first checks complete.";
+    ? "Repeated checks confirmed an outage. Incident details appear below."
+    : recoveringCount > 0
+      ? "The site is responding again. The incident will close after the configured recovery checks pass."
+      : investigatingCount > 0
+        ? "A check failed or slowed down. More checks are running before an outage is confirmed."
+        : staleCount > 0
+          ? "The latest worker heartbeat is late. Site availability may be out of date."
+          : allOperational
+            ? "Every monitored website passed its latest HTTP availability check."
+            : "Sites will appear here as soon as the first checks complete.";
   const bannerClasses = hasOutage
     ? "border-rose-200 bg-rose-50/80 text-rose-950"
-    : staleCount > 0
+    : staleCount > 0 || investigatingCount > 0 || recoveringCount > 0
       ? "border-amber-200 bg-amber-50/80 text-amber-950"
       : "border-emerald-200 bg-emerald-50/80 text-emerald-950";
   const iconClasses = hasOutage
     ? "bg-rose-600 text-white"
-    : staleCount > 0
+    : staleCount > 0 || investigatingCount > 0 || recoveringCount > 0
       ? "bg-amber-500 text-white"
       : "bg-emerald-600 text-white";
 
@@ -248,7 +327,9 @@ function OverallStatus({
         >
           {hasOutage ? (
             <AlertIcon />
-          ) : staleCount > 0 ? (
+          ) : staleCount > 0 ||
+            investigatingCount > 0 ||
+            recoveringCount > 0 ? (
             <ClockIcon />
           ) : (
             <CheckIcon />
@@ -263,6 +344,88 @@ function OverallStatus({
           </p>
         </div>
       </div>
+    </section>
+  );
+}
+
+function ActiveIncidents({ sites }: { sites: PublicSite[] }) {
+  if (sites.length === 0) return null;
+
+  return (
+    <section aria-labelledby="active-incidents-title" className="mt-5">
+      <div className="flex items-center justify-between gap-4 px-1">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-rose-700">
+            Active incidents
+          </p>
+          <h2
+            className="mt-2 text-xl font-bold tracking-[-0.03em]"
+            id="active-incidents-title"
+          >
+            Confirmed outages
+          </h2>
+        </div>
+      </div>
+
+      <ul className="mt-4 grid gap-4 lg:grid-cols-2">
+        {sites.map((site) => (
+          <li
+            className={`rounded-3xl border bg-white p-5 shadow-[var(--shadow-sm)] sm:p-6 ${site.status === "recovering" ? "border-amber-200" : "border-rose-200"}`}
+            key={site.id}
+          >
+            <div className="flex items-start gap-4">
+              <span
+                className={`grid size-10 shrink-0 place-items-center rounded-2xl text-white ${site.status === "recovering" ? "bg-amber-500" : "bg-rose-600"}`}
+              >
+                {site.status === "recovering" ? <ClockIcon /> : <AlertIcon />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold tracking-[-0.02em]">
+                  {site.name}{" "}
+                  {site.status === "recovering"
+                    ? "is recovering"
+                    : "is unavailable"}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                  {site.status === "recovering"
+                    ? "A successful response was received. Additional checks are running before this incident closes."
+                    : getFailureDescription(
+                        site.failureCategory,
+                        site.httpStatusCode,
+                      )}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-[var(--faint)]">
+                  {site.incidentStartedAt ? (
+                    <span>
+                      Down since{" "}
+                      <time dateTime={site.incidentStartedAt}>
+                        {formatLastChecked(site.incidentStartedAt)}
+                      </time>
+                    </span>
+                  ) : null}
+                  {site.lastSuccessAt ? (
+                    <span>
+                      Last successful check{" "}
+                      <time dateTime={site.lastSuccessAt}>
+                        {formatLastChecked(site.lastSuccessAt)}
+                      </time>
+                    </span>
+                  ) : null}
+                </div>
+                <a
+                  className="mt-5 inline-flex items-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[var(--signal-strong)]"
+                  href={site.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Try opening the site
+                  <ArrowUpRightIcon />
+                </a>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -290,18 +453,39 @@ async function SiteStatusContent() {
 
   const staleCount = result.sites.filter((site) => site.isStale).length;
   const activeCount = result.sites.filter(
-    (site) => site.isActive && !site.isStale,
+    (site) => site.status === "operational" && !site.isStale,
   ).length;
-  const inactiveCount = result.sites.length - activeCount - staleCount;
+  const downSites = result.sites.filter(
+    (site) => site.status === "down" && !site.isStale,
+  );
+  const investigatingCount = result.sites.filter(
+    (site) => site.status === "degraded" && !site.isStale,
+  ).length;
+  const recoveringCount = result.sites.filter(
+    (site) => site.status === "recovering" && !site.isStale,
+  ).length;
+  const pendingCount = result.sites.filter(
+    (site) => site.status === "unknown" && !site.isStale,
+  ).length;
+  const reviewCount =
+    investigatingCount + recoveringCount + pendingCount + staleCount;
+  const incidentSites = result.sites.filter(
+    (site) =>
+      (site.status === "down" || site.status === "recovering") && !site.isStale,
+  );
 
   return (
     <>
       <OverallStatus
         activeCount={activeCount}
-        inactiveCount={inactiveCount}
+        downCount={downSites.length}
+        investigatingCount={investigatingCount}
+        recoveringCount={recoveringCount}
         staleCount={staleCount}
         totalCount={result.sites.length}
       />
+
+      <ActiveIncidents sites={incidentSites} />
 
       <section
         aria-label="Site status totals"
@@ -320,16 +504,16 @@ async function SiteStatusContent() {
           value={activeCount}
         />
         <Metric
-          detail="Currently require attention"
+          detail="Unavailable or recovery being confirmed"
           icon={<AlertIcon />}
-          label="Unavailable"
-          value={inactiveCount}
+          label="Active incidents"
+          value={incidentSites.length}
         />
         <Metric
-          detail="Reporting later than expected"
+          detail="Investigating, pending, or delayed"
           icon={<ClockIcon />}
-          label="Delayed"
-          value={staleCount}
+          label="Needs review"
+          value={reviewCount}
         />
       </section>
 
@@ -343,12 +527,12 @@ async function SiteStatusContent() {
               Monitored websites
             </h2>
           </div>
-          <p className="max-w-sm text-sm leading-6 text-[var(--muted)] sm:text-right">
-            Results update automatically as checks complete.
-            <span className="block text-xs text-[var(--faint)]">
+          <div className="sm:text-right">
+            <p className="mb-3 max-w-sm text-sm leading-6 text-[var(--muted)]">
               Times shown in East Africa Time.
-            </span>
-          </p>
+            </p>
+            <StatusRefresh />
+          </div>
         </div>
 
         {result.sites.length > 0 ? (
@@ -402,7 +586,7 @@ export function PublicDashboard() {
             </div>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold text-[var(--signal)] shadow-[var(--shadow-sm)]">
-            <span className="status-pulse size-2 rounded-full bg-emerald-500" />
+            <span className="size-2 rounded-full bg-blue-500" />
             Live overview
           </span>
         </div>

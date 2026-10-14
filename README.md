@@ -2,7 +2,7 @@
 
 Public HTTP/HTTPS uptime status for Shivachi Studio and managed client websites.
 
-The public dashboard lists every current monitor with Active, Inactive, or Monitoring delayed indicators. It reads a limited, read-only database projection with the Supabase publishable key. A separate lightweight worker performs HTTP/HTTPS checks, manages incidents and notifications, and writes the latest status; see [the worker ADR](docs/architecture/0001-scheduler-and-worker.md).
+The public dashboard lists every current monitor as Operational, Investigating, Unavailable, Recovering, Pending, or Delayed. Confirmed outages include a public-safe failure category, incident start time, and last successful check. It reads a limited, read-only database projection with the Supabase publishable key and refreshes every 30 seconds. A separate lightweight worker performs HTTP/HTTPS checks, manages incidents and notifications, and writes the latest status; see [the worker ADR](docs/architecture/0001-scheduler-and-worker.md).
 
 ## Requirements
 
@@ -24,7 +24,7 @@ Do not paste production secrets into chat, commit them, expose the service-role 
 
 ## Public dashboard setup
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the dashboard deployment environment. Anonymous visitors can execute only the `get_public_site_statuses` function, which returns `id`, name, URL, active state, and last-check time. The underlying monitor and result tables remain protected by RLS. If configuration or the database is unavailable, the public page shows a safe unavailable state.
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the dashboard deployment environment. Anonymous visitors can execute only the `get_public_site_statuses` function, which returns the public monitor status, timestamps, HTTP status code, and a normalized failure category. Raw worker errors, incidents, check results, and notification destinations remain protected by RLS. If configuration or the database is unavailable, the public page shows a safe unavailable state.
 
 Applying the migrations adds these initial monitors:
 
@@ -47,6 +47,8 @@ The worker also:
 - retries failed notification deliveries with exponential backoff;
 - records heartbeats for container health checks;
 - deletes raw check results after 30 days by default.
+
+A first failed check is shown as Investigating. The worker changes a monitor to Unavailable and opens an incident only after `failure_threshold` consecutive failures (three by default). It resolves the incident after `recovery_threshold` consecutive successful checks (one by default), and queues one outage and one recovery notification per enabled channel.
 
 Email delivery uses Resend (`RESEND_API_KEY` and `RESEND_FROM_EMAIL`). Telegram delivery uses `TELEGRAM_BOT_TOKEN`; the channel destination is the Telegram chat ID. Notification channels are configured in the database rather than exposed through the public dashboard.
 

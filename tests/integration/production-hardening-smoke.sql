@@ -65,6 +65,27 @@ begin
 end;
 $$;
 
+set local role anon;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.get_public_site_statuses()
+    where id = current_setting('worker_test.monitor_id', true)::uuid
+      and status = 'down'
+      and is_active = false
+      and is_stale = false
+      and incident_started_at is not null
+      and failure_category = 'http'
+      and http_status_code = 503
+  ) then
+    raise exception 'Confirmed outage was not included in the public projection';
+  end if;
+end;
+$$;
+
+reset role;
+
 update public.monitors
 set next_check_at = now() - interval '1 minute'
 where id = :'monitor_id'::uuid;

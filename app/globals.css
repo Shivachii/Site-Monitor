@@ -1,14 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --ink: #141b1f;
-  --muted: #617078;
-  --line: #dce3e6;
+  --ink: #0b1f3a;
+  --muted: #627189;
+  --faint: #8795aa;
+  --line: #dce6f2;
   --surface: #ffffff;
-  --canvas: #f4f6f5;
-  --signal: #0e766e;
-  --signal-strong: #075b55;
+  --soft: #edf5ff;
+  --canvas: #f5f8fc;
+  --signal: #2563eb;
+  --signal-strong: #1d4ed8;
+  --signal-soft: #bfdbfe;
   --danger: #b83a3a;
+  --shadow-sm: 0 1px 2px rgb(11 31 58 / 4%), 0 8px 24px rgb(11 31 58 / 5%);
+  --shadow-md: 0 2px 4px rgb(11 31 58 / 4%), 0 18px 50px rgb(11 31 58 / 8%);
+  --shadow-lg: 0 30px 80px rgb(11 31 58 / 20%);
 }
 
 * {
@@ -24,10 +30,18 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at 8% 0%, rgb(14 118 110 / 6%), transparent 28rem),
+    radial-gradient(circle at 7% 7%, rgb(37 99 235 / 9%), transparent 25rem),
+    radial-gradient(circle at 96% 28%, rgb(96 165 250 / 8%), transparent 28rem),
     var(--canvas);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
@@ -40,4 +54,109 @@ button,
 input {
   outline-color: var(--signal);
   outline-offset: 3px;
+}
+
+.hero-panel::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.055;
+  background-image:
+    linear-gradient(rgb(255 255 255) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to right, transparent, black 35%, black);
+}
+
+.hero-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(1px);
+  opacity: 0.7;
+}
+
+.hero-orb-one {
+  top: -8rem;
+  right: -5rem;
+  width: 24rem;
+  height: 24rem;
+  background: radial-gradient(circle, rgb(59 130 246 / 34%), transparent 68%);
+}
+
+.hero-orb-two {
+  bottom: -11rem;
+  left: 35%;
+  width: 25rem;
+  height: 25rem;
+  background: radial-gradient(circle, rgb(147 197 253 / 18%), transparent 70%);
+}
+
+.status-banner::after {
+  position: absolute;
+  top: -5rem;
+  right: -3rem;
+  width: 14rem;
+  height: 14rem;
+  border: 2rem solid currentColor;
+  border-radius: 999px;
+  content: "";
+  opacity: 0.035;
+}
+
+.metric-card {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.metric-card:hover {
+  border-color: var(--signal-soft);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.site-row {
+  transition: background-color 160ms ease;
+}
+
+.site-row:hover {
+  background: #f8fbff;
+}
+
+.status-pulse {
+  box-shadow: 0 0 0 0 rgb(16 185 129 / 35%);
+  animation: status-pulse 2.4s ease-out infinite;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e7edf5 25%, #f4f8fc 50%, #e7edf5 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  60%,
+  100% {
+    box-shadow: 0 0 0 7px rgb(16 185 129 / 0%);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-card,
+  .site-row {
+    transition: none;
+  }
+
+  .status-pulse,
+  .skeleton {
+    animation: none;
+  }
 }

@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     template: "%s · Shivachi Monitor",
   },
   description:
-    "Public website availability for Shivachi Studio and its clients.",
+    "Live public website availability for Shivachi Studio and its clients.",
 };
 
 export default function RootLayout({
